@@ -1,0 +1,113 @@
+service:
+  name: eventbridge-example
+
+custom:
+  webpack:
+    webpackConfig: ./webpack.config.js
+    includeModules: true
+  serverless-iam-roles-per-function:
+    defaultInherit: true # Each function will inherit the service level roles too.
+  prune:
+    automatic: true
+    number: 3
+
+
+
+plugins:
+  - serverless-offline
+  - serverless-webpack
+  - serverless-iam-roles-per-function
+  - serverless-prune-plugin
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  stage: ${opt:stage, 'local'}
+  region: ${opt:region, 'us-east-2'}
+  apiGateway:
+    minimumCompressionSize: 1024 # Enable gzip compression for responses > 1 KB
+  environment:
+    DEBUG: '*'
+    NODE_ENV: ${self:provider.stage}
+  tracing:
+    lambda: true
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - xray:PutTraceSegments
+        - xray:PutTelemetryRecords
+      Resource: "*"
+    - Effect: Allow
+      Action: events:PutEvents
+      Resource: ${cf:${self:service}-${self:provider.stage}.EventBridgeARN}
+
+resources:
+  Resources:
+    GSEventBridge:
+      Type: AWS::Events::EventBus
+      Properties:
+        Name: my-custom-bus
+  Outputs:
+    EventBridgeARN:
+      Value: !GetAtt GSEventBridge.Arn
+      Export:
+        Name: 'EventBridgeARN'
+
+functions:
+  seeder:
+    handler: src/handler.seeder
+
+
+  case1:
+    handler: src/handler.case1Handler
+    events:
+      - eventBridge:
+          eventBus: ${cf:${self:service}-${self:provider.stage}.EventBridgeARN}
+          pattern:
+            source:
+              - serviceA
+            detail-type:
+              - ACCOUNT.CREATED
+
+  case2:
+    handler: src/handler.case2Handler
+    events:
+      - eventBridge:
+          eventBus: ${cf:${self:service}-${self:provider.stage}.EventBridgeARN}
+          pattern:
+            source:
+              - serviceA
+            detail-type:
+              - RULE.CREATED
+
+  case3:
+    handler: src/handler.case3Handler
+    events:
+      - eventBridge:
+          eventBus: ${cf:${self:service}-${self:provider.stage}.EventBridgeARN}
+          pattern:
+            source: # filter on the source
+              - serviceB
+            detail-type: # filter on the detail-type
+              - RULE.CREATED
+            detail: # Can further filter by content of the event
+              trigger:
+                - 'EC2 Deleted'
+  case4:
+    handler: src/handler.case4Handler
+    events:
+      - eventBridge:
+          eventBus: ${cf:${self:service}-${self:provider.stage}.EventBridgeARN}
+          pattern:
+            source:
+              - serviceC
+            detail-type:
+              - RTE.MATCHED
+
+  case5:
+    handler: src/handler.case5Handler
+    events:
+      - eventBridge:
+          eventBus: ${cf:${self:service}-${self:provider.stage}.EventBridgeARN}
+          pattern:
+            source: [{"prefix": "" }]
